@@ -1,0 +1,221 @@
+name: kafka-cdc-flink
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # Also picked up by the entrypoint's init server and the psql calls in postgres/init/.
+      PGPORT: ${POSTGRES_PORT}
+    command:
+      - postgres
+      - -c
+      - port=${POSTGRES_PORT}
+      - -c
+      - wal_level=logical
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
+    ports:
+      - "${POSTGRES_PORT}:${POSTGRES_PORT}"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./data/dvdrental.tar:/dvdrental.tar:ro
+    healthcheck:
+      # TCP probe, not the unix socket -- a socket probe would report healthy
+      # while init scripts are still mid-restore.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER} -d ${POSTGRES_DB} -p ${POSTGRES_PORT}"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  kafka:
+    image: debezium/kafka:2.7.3.Final
+    environment:
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID}
+      NODE_ID: 1
+      # 0.0.0.0 so the broker can reach its own controller at localhost:9093.
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:${KAFKA_PORT},CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:${KAFKA_PORT}
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+    ports:
+      - "${KAFKA_PORT}:${KAFKA_PORT}"
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.12
+    depends_on:
+      - kafka
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:${KAFKA_PORT}
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:${SCHEMA_REGISTRY_PORT}
+    ports:
+      - "${SCHEMA_REGISTRY_PORT}:${SCHEMA_REGISTRY_PORT}"
+
+  connect:
+    build: ./connect
+    depends_on:
+      - kafka
+      - postgres
+      - schema-registry
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka:${KAFKA_PORT}
+      CONNECT_LISTENERS: http://0.0.0.0:${CONNECT_PORT}
+      CONNECT_GROUP_ID: 1
+      CONNECT_CONFIG_STORAGE_TOPIC: connect_configs
+      CONNECT_OFFSET_STORAGE_TOPIC: connect_offsets
+      CONNECT_STATUS_STORAGE_TOPIC: connect_statuses
+      # Defaults to 3; we only have one broker.
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:${SCHEMA_REGISTRY_PORT}
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:${SCHEMA_REGISTRY_PORT}
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+    ports:
+      - "${CONNECT_PORT}:${CONNECT_PORT}"
+    # Overrides the image's default healthcheck, which probes CONNECT_REST_PORT
+    # (unset here -- we use CONNECT_LISTENERS instead).
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -o /dev/null http://localhost:${CONNECT_PORT}/connectors"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  flink-jobmanager:
+    build: ./flink
+    command: jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        rest.port: ${FLINK_UI_PORT}
+    ports:
+      - "${FLINK_UI_PORT}:${FLINK_UI_PORT}"
+
+  flink-taskmanager:
+    build: ./flink
+    command: taskmanager
+    depends_on:
+      - flink-jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    depends_on:
+      - kafka
+    ports:
+      - "${CLICKHOUSE_HTTP_PORT}:${CLICKHOUSE_HTTP_PORT}"
+      - "${CLICKHOUSE_NATIVE_PORT}:${CLICKHOUSE_NATIVE_PORT}"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    # ClickHouse reads listen ports from config, not env vars.
+    configs:
+      - source: clickhouse-ports
+        target: /etc/clickhouse-server/config.d/ports.xml
+      - source: clickhouse-final
+        target: /etc/clickhouse-server/users.d/final.xml
+
+  # One-shot: creates ClickHouse tables, registers the connector, submits the
+  # Flink job, then exits. Idempotent.
+  init:
+    build: ./flink
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      schema-registry:
+        condition: service_started
+      connect:
+        condition: service_healthy
+      clickhouse:
+        condition: service_started
+      flink-jobmanager:
+        condition: service_started
+    env_file: .env
+    entrypoint: ["bash", "/opt/init/init.sh"]
+    restart: "no"
+    volumes:
+      - ./scripts/init.sh:/opt/init/init.sh:ro
+      - ./clickhouse/init.sql:/opt/init/clickhouse.sql:ro
+      - ./debezium/postgres-connector.json:/opt/init/connector.json:ro
+      - ./flink/sql/pipeline.sql:/opt/init/pipeline.sql:ro
+
+  # Keeps writing to dvdrental. Stop with `docker compose stop generator`.
+  generator:
+    image: postgres:16
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    entrypoint: ["bash", "/opt/generate.sh"]
+    restart: unless-stopped
+    volumes:
+      - ./scripts/generate-load.sh:/opt/generate.sh:ro
+
+  akhq:
+    image: tchiotludo/akhq:0.27.1
+    depends_on:
+      - kafka
+      - connect
+      - schema-registry
+    environment:
+      MICRONAUT_SERVER_PORT: ${AKHQ_PORT}
+    ports:
+      - "${AKHQ_PORT}:${AKHQ_PORT}"
+    configs:
+      - source: akhq-config
+        target: /app/application.yml
+
+volumes:
+  postgres-data:
+  clickhouse-data:
+
+# Inline so compose fills ${VAR} from .env directly.
+configs:
+  akhq-config:
+    content: |
+      akhq:
+        connections:
+          kafka-cdc-flink:
+            properties:
+              bootstrap.servers: "kafka:${KAFKA_PORT}"
+            schema-registry:
+              url: "http://schema-registry:${SCHEMA_REGISTRY_PORT}"
+            connect:
+              - name: "connect"
+                url: "http://connect:${CONNECT_PORT}"
+
+  clickhouse-ports:
+    content: |
+      <clickhouse>
+          <http_port>${CLICKHOUSE_HTTP_PORT}</http_port>
+          <tcp_port>${CLICKHOUSE_NATIVE_PORT}</tcp_port>
+      </clickhouse>
+
+  # FINAL on by default so every client dedups ReplacingMergeTree rows without
+  # remembering the keyword. Override with SETTINGS final = 0 for history.
+  clickhouse-final:
+    content: |
+      <clickhouse>
+          <profiles>
+              <default>
+                  <final>1</final>
+              </default>
+          </profiles>
+      </clickhouse>

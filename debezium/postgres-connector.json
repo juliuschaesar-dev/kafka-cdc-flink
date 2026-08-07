@@ -1,0 +1,22 @@
+{
+  "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+  "database.hostname": "postgres",
+  "database.port": "${POSTGRES_PORT}",
+  "database.user": "${POSTGRES_USER}",
+  "database.password": "${POSTGRES_PASSWORD}",
+  "database.dbname": "${POSTGRES_DB}",
+  "topic.prefix": "${POSTGRES_DB}",
+  "plugin.name": "pgoutput",
+  "publication.name": "dbz_publication",
+  "publication.autocreate.mode": "disabled",
+  "table.include.list": "public.customer,public.payment,public.rental",
+  "heartbeat.interval.ms": "10000",
+  "heartbeat.action.query": "UPDATE public.dbz_heartbeat SET ts = now() WHERE id = 1",
+  "slot.name": "dbz_${POSTGRES_DB}_slot",
+  "tombstones.on.delete": "false",
+  "time.precision.mode": "connect",
+  "key.converter": "io.confluent.connect.avro.AvroConverter",
+  "key.converter.schema.registry.url": "http://schema-registry:${SCHEMA_REGISTRY_PORT}",
+  "value.converter": "io.confluent.connect.avro.AvroConverter",
+  "value.converter.schema.registry.url": "http://schema-registry:${SCHEMA_REGISTRY_PORT}"
+}
