@@ -156,9 +156,12 @@ services:
       - ./debezium/postgres-connector.json:/opt/init/connector.json:ro
       - ./flink/sql/pipeline.sql:/opt/init/pipeline.sql:ro
 
-  # Keeps writing to dvdrental. Stop with `docker compose stop generator`.
+  # Keeps writing to dvdrental. Not started by `docker compose up` -- opt in
+  # with `docker compose --profile load up -d generator`, stop with
+  # `docker compose stop generator`.
   generator:
     image: postgres:16
+    profiles: ["load"]
     depends_on:
       postgres:
         condition: service_healthy

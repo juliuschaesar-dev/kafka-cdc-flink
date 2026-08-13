@@ -20,9 +20,11 @@ its native Kafka table engine.
 
 On first run Debezium snapshots the existing rows once, then tails the WAL for
 ongoing inserts/updates/deletes. Since the dvdrental dump is static, a
-`generator` service keeps writing to `payment` so there's always something to
-stream (insert every `GENERATOR_INTERVAL_SECONDS`, periodic update/delete). It
-only touches rows it created. Stop it with `docker compose stop generator`.
+`generator` service can keep writing to `payment` so there's always something
+to stream (insert every `GENERATOR_INTERVAL_SECONDS`, periodic update/delete).
+It only touches rows it created. It's not started by `docker compose up` —
+start it manually (see [Run it](#run-it)) and stop it with
+`docker compose stop generator`.
 
 Captured tables use `REPLICA IDENTITY FULL` (see `postgres/init/`) — without
 it, updates/deletes carry no "before" value and Flink can't build the
@@ -98,12 +100,26 @@ docker compose up -d --build
 
 The `init` service creates ClickHouse tables, registers the Debezium
 connector, and submits the Flink job, then exits. ClickHouse then consumes the
-result topics on its own, and `generator` keeps the pipeline fed.
+result topics on its own.
 
 Watch progress:
 
 ```bash
 docker compose logs -f init
+```
+
+To feed the pipeline with continuous inserts/updates/deletes, start the
+`generator` service manually — it's gated behind the `load` profile so it
+doesn't start with a plain `docker compose up`:
+
+```bash
+docker compose --profile load up -d generator
+```
+
+Stop it with:
+
+```bash
+docker compose stop generator
 ```
 
 Re-running `docker compose up -d` is safe — DDL is idempotent, the connector
