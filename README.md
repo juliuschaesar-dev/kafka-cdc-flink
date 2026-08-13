@@ -185,7 +185,10 @@ current month's numbers moving.
 ## Resetting
 
 ```bash
-docker compose down -v
+docker compose --profile "*" down -v
 ```
 
-Drops all containers and volumes, including Postgres data, Kafka topics, and ClickHouse data.
+Drops all containers and volumes, including Postgres data, Kafka topics, and
+ClickHouse data. The `--profile "*"` flag matters if `generator` was ever
+started — plain `docker compose down` doesn't know about services in
+unactivated profiles and leaves their containers running.
