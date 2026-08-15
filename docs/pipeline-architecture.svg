@@ -73,7 +73,7 @@
 
   <rect width="1600" height="950" fill="#fbfbfc"/>
 
-  <text x="800" y="36" font-size="26" font-weight="700" fill="#1a1a2e" text-anchor="middle">Kafka CDC &#8594; Flink &#8594; ClickHouse Pipeline</text>
+  <text x="800" y="36" font-size="26" font-weight="700" fill="#1a1a2e" text-anchor="middle">PostgreSQL &#8594; Kafka CDC &#8594; Flink &#8594; ClickHouse Pipeline</text>
   <text x="800" y="58" font-size="14" fill="#666" text-anchor="middle">docker-compose services and data flow &#8212; kafka-cdc-flink</text>
 
   <!-- ============ cross-cutting bus ============ -->
