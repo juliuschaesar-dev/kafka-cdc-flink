@@ -3,6 +3,8 @@
 Streaming CDC pipeline: PostgreSQL (dvdrental) → Debezium → Kafka → Flink → ClickHouse.
 All Kafka topics use Avro, with schemas managed by Confluent Schema Registry.
 
+## Architecture
+
 <img src="docs/pipeline-architecture.svg" width="100%" alt="Pipeline architecture: PostgreSQL, Debezium, Kafka, Flink, ClickHouse, Schema Registry, AKHQ">
 
 Debezium captures `customer`, `payment`, and `rental` — the tables that drive a
