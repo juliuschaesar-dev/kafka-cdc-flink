@@ -7,7 +7,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-      # Also picked up by the entrypoint's init server and the psql calls in postgres/init/.
       PGPORT: ${POSTGRES_PORT}
     command:
       - postgres
@@ -26,8 +25,6 @@ services:
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
       - ./data/dvdrental.tar:/dvdrental.tar:ro
     healthcheck:
-      # TCP probe, not the unix socket -- a socket probe would report healthy
-      # while init scripts are still mid-restore.
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER} -d ${POSTGRES_DB} -p ${POSTGRES_PORT}"]
       interval: 5s
       timeout: 5s
@@ -38,7 +35,6 @@ services:
     environment:
       CLUSTER_ID: ${KAFKA_CLUSTER_ID}
       NODE_ID: 1
-      # 0.0.0.0 so the broker can reach its own controller at localhost:9093.
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:${KAFKA_PORT},CONTROLLER://0.0.0.0:9093
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:${KAFKA_PORT}
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
@@ -69,7 +65,6 @@ services:
       CONNECT_CONFIG_STORAGE_TOPIC: connect_configs
       CONNECT_OFFSET_STORAGE_TOPIC: connect_offsets
       CONNECT_STATUS_STORAGE_TOPIC: connect_statuses
-      # Defaults to 3; we only have one broker.
       CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
       CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
       CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
@@ -81,8 +76,6 @@ services:
       CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
     ports:
       - "${CONNECT_PORT}:${CONNECT_PORT}"
-    # Overrides the image's default healthcheck, which probes CONNECT_REST_PORT
-    # (unset here -- we use CONNECT_LISTENERS instead).
     healthcheck:
       test: ["CMD-SHELL", "curl -sf -o /dev/null http://localhost:${CONNECT_PORT}/connectors"]
       interval: 10s
@@ -123,15 +116,12 @@ services:
       - "${CLICKHOUSE_NATIVE_PORT}:${CLICKHOUSE_NATIVE_PORT}"
     volumes:
       - clickhouse-data:/var/lib/clickhouse
-    # ClickHouse reads listen ports from config, not env vars.
     configs:
       - source: clickhouse-ports
         target: /etc/clickhouse-server/config.d/ports.xml
       - source: clickhouse-final
         target: /etc/clickhouse-server/users.d/final.xml
 
-  # One-shot: creates ClickHouse tables, registers the connector, submits the
-  # Flink job, then exits. Idempotent.
   init:
     build: ./flink
     depends_on:
@@ -156,9 +146,6 @@ services:
       - ./debezium/postgres-connector.json:/opt/init/connector.json:ro
       - ./flink/sql/pipeline.sql:/opt/init/pipeline.sql:ro
 
-  # Keeps writing to dvdrental. Not started by `docker compose up` -- opt in
-  # with `docker compose --profile load up -d generator`, stop with
-  # `docker compose stop generator`.
   generator:
     image: postgres:16
     profiles: ["load"]
@@ -189,7 +176,6 @@ volumes:
   postgres-data:
   clickhouse-data:
 
-# Inline so compose fills ${VAR} from .env directly.
 configs:
   akhq-config:
     content: |
@@ -211,8 +197,6 @@ configs:
           <tcp_port>${CLICKHOUSE_NATIVE_PORT}</tcp_port>
       </clickhouse>
 
-  # FINAL on by default so every client dedups ReplacingMergeTree rows without
-  # remembering the keyword. Override with SETTINGS final = 0 for history.
   clickhouse-final:
     content: |
       <clickhouse>
