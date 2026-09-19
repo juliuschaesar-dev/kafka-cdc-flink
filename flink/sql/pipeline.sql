@@ -1,6 +1,3 @@
--- Submitted by scripts/init.sh. Six result streams, run as one job via the
--- STATEMENT SET below so sources are read once.
-
 SET 'execution.checkpointing.interval' = '10s';
 SET 'pipeline.name' = 'cdc-analytics';
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Keeps dvdrental changing: inserts a payment every GENERATOR_INTERVAL_SECONDS,
-# updates one every 5th round, deletes one every 10th.
+# updates one every 5th round.
 set -euo pipefail
 
-INTERVAL="${GENERATOR_INTERVAL_SECONDS:-5}"
+INTERVAL="$GENERATOR_INTERVAL_SECONDS"
 export PGPASSWORD="$POSTGRES_PASSWORD"
 q() { psql -h postgres -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -A -c "$1"; }
 
@@ -18,6 +18,7 @@ echo "generator: baseline payment_id = ${baseline}, interval = ${INTERVAL}s"
 
 # Second guard: dump rows are dated 2007, generated rows are dated now().
 readonly GENERATED="payment_id > ${baseline} AND payment_date > TIMESTAMP '2020-01-01'"
+readonly RANDOM_AMOUNT="round((random() * 9 + 0.99)::numeric, 2)"
 
 # Queries may fail (e.g. Postgres restart) without killing the loop.
 i=0
@@ -29,23 +30,16 @@ while true; do
        (SELECT customer_id FROM customer ORDER BY random() LIMIT 1),
        1,
        (SELECT rental_id FROM rental ORDER BY random() LIMIT 1),
-       round((random() * 9 + 0.99)::numeric, 2),
+       ${RANDOM_AMOUNT},
        now()
      )" > /dev/null || echo "generator: insert failed, continuing"
 
   if [ $((i % 5)) -eq 0 ]; then
-    q "UPDATE payment SET amount = round((random() * 9 + 0.99)::numeric, 2)
+    q "UPDATE payment SET amount = ${RANDOM_AMOUNT}
        WHERE payment_id = (
          SELECT payment_id FROM payment WHERE ${GENERATED} ORDER BY random() LIMIT 1
        )" > /dev/null || echo "generator: update failed, continuing"
-  fi
-
-  if [ $((i % 10)) -eq 0 ]; then
-    q "DELETE FROM payment
-       WHERE payment_id = (
-         SELECT payment_id FROM payment WHERE ${GENERATED} ORDER BY random() LIMIT 1
-       )" > /dev/null || echo "generator: delete failed, continuing"
-    echo "generator: ${i} rounds (inserts + updates + deletes)"
+    echo "generator: ${i} rounds (inserts + updates)"
   fi
 
   sleep "$INTERVAL"

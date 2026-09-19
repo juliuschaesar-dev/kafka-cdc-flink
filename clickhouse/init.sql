@@ -1,13 +1,3 @@
--- Applied by scripts/init.sh.
---
--- Two databases: ${CLICKHOUSE_DB} holds the six result tables, and
--- ${CLICKHOUSE_DB}_ingest holds the Kafka plumbing feeding them -- kept
--- separate since a Kafka-engine table can only be read once, by its view.
---
--- Storage tables are ReplacingMergeTree, versioned by updated_at so the
--- newest row wins. FINAL is on by default (see docker-compose.yml), so plain
--- SELECTs already dedup; add SETTINGS final = 0 to see version history.
-
 CREATE DATABASE IF NOT EXISTS ${CLICKHOUSE_DB}_ingest;
 
 -- --------------------------------------------- windowed revenue per customer

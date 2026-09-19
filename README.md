@@ -17,7 +17,7 @@ its native Kafka table engine.
 On first run Debezium snapshots the existing rows once, then tails the WAL for
 ongoing inserts/updates/deletes. Since the dvdrental dump is static, a
 `generator` service can keep writing to `payment` so there's always something
-to stream (insert every `GENERATOR_INTERVAL_SECONDS`, periodic update/delete).
+to stream (insert every `GENERATOR_INTERVAL_SECONDS`, periodic update).
 It only touches rows it created. It's not started by `docker compose up` —
 start it manually (see [Run it](#run-it)) and stop it with
 `docker compose stop generator`.
@@ -178,7 +178,7 @@ current month's numbers moving.
 └── data/dvdrental.tar                # sample dvdrental dump
 ```
 
-## Resetting
+## Stopping
 
 ```bash
 docker compose --profile "*" down -v
