@@ -205,9 +205,9 @@
   <use href="#i-gear" x="54" y="574" width="34" height="34"/>
   <text x="98" y="596" font-size="15" font-weight="700" fill="#1a1a2e">generator</text>
   <text font-size="11" fill="#555">
-    <tspan x="54" y="622">manual load: inserts,</tspan>
-    <tspan x="54" y="635">updates &amp; deletes on</tspan>
-    <tspan x="54" y="648">payment (own rows only)</tspan>
+    <tspan x="54" y="622">manual load: inserts &amp;</tspan>
+    <tspan x="54" y="635">updates on payment</tspan>
+    <tspan x="54" y="648">(own rows only)</tspan>
     <tspan x="54" y="661">profile: load (optional)</tspan>
   </text>
 
