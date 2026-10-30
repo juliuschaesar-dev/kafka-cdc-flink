@@ -64,6 +64,46 @@ of event-time order — a tighter watermark silently dropped ~19% of revenue.)
 
 Everything runs through compose — no shell-specific requirements.
 
+## Stack versions
+
+| Component         | Version                                   | Defined in                  |
+|-------------------|-------------------------------------------|-----------------------------|
+| PostgreSQL        | 17                                        | `docker-compose.yml`        |
+| Kafka (KRaft)     | Debezium image 3.6                        | `docker-compose.yml`        |
+| Schema Registry   | Confluent 8.3.0                           | `docker-compose.yml`        |
+| Flink             | 2.2.1 (Scala 2.12, Java 17)               | `flink/Dockerfile`          |
+| ClickHouse        | 26.8                                      | `docker-compose.yml`        |
+| AKHQ              | 0.28.0                                    | `docker-compose.yml`        |
+
+Flink connectors are tied to the Flink minor version, so they move together
+with the image (all in `flink/Dockerfile`):
+
+| Jar                                  | Version     |
+|--------------------------------------|-------------|
+| `flink-sql-connector-kafka`          | 5.0.0-2.2   |
+| `flink-sql-avro-confluent-registry`  | 2.2.1       |
+| `flink-connector-jdbc-core`          | 4.1.0-2.2   |
+| `flink-connector-jdbc-postgres`      | 4.1.0-2.2   |
+| `postgresql` (JDBC driver)           | 42.7.13     |
+
+Upgrading Flink means picking a version for which both the Kafka and JDBC
+connectors have a matching `-<flink minor>` release (the suffix). Flink 2.x
+splits the JDBC connector into a core jar plus one jar per database dialect, so
+both `flink-connector-jdbc-core` and `flink-connector-jdbc-postgres` are
+needed, replacing the single `flink-connector-jdbc` jar used on Flink 1.x.
+Flink 2.3 exists, but at the time of writing the connectors only publish
+builds up to `-2.2`, so the stack stays on 2.2.x.
+
+Upgrading an existing stack: rebuild and recreate the Flink services, then
+re-run `init` to submit the job. The job restarts from the earliest Kafka
+offsets, and ClickHouse's `ReplacingMergeTree` collapses the replayed rows.
+
+```bash
+docker compose build flink-jobmanager
+docker compose up -d --force-recreate flink-jobmanager flink-taskmanager
+docker compose run --rm init
+```
+
 ## Configuration
 
 All credentials, names, and ports live in `.env` (gitignored):
@@ -169,7 +209,7 @@ current month's numbers moving.
 ├── debezium/postgres-connector.json  # Debezium Postgres source connector config
 ├── connect/Dockerfile                # Kafka Connect image: Avro converter + Debezium plugin
 ├── flink/                            # custom Flink image + SQL pipeline
-│   ├── Dockerfile                    # Kafka, Avro/Schema-Registry, JDBC connectors + driver
+│   ├── Dockerfile                    # Flink 2.2.1 + Kafka, Avro/Schema-Registry, JDBC connectors + driver
 │   └── sql/pipeline.sql              # sources, lookups, sinks, views
 ├── clickhouse/init.sql               # result tables + Kafka consumers/views
 ├── scripts/
