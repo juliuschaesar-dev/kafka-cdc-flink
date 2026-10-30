@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streaming dashboard</title>
+<style>
+  :root {
+    --bg: #0f1419; --card: #171d26; --line: #263040; --text: #e6edf3; --muted: #8b98a9;
+    --blue: #4f9dff; --teal: #2dd4bf; --amber: #f5b041; --red: #f87171; --green: #4ade80;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; justify-content: space-between;
+           padding: 16px 24px; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0; font-size: 18px; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .live { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--green); animation: pulse 2s infinite; }
+  .dot.bad { background: var(--red); }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(74,222,128,.6); } 100% { box-shadow: 0 0 0 10px rgba(74,222,128,0); } }
+  main { padding: 16px 24px 32px; display: grid; gap: 16px; max-width: 1400px; margin: 0 auto; }
+  .grid { display: grid; gap: 16px; }
+  .kpis { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+  .two { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+  .card h2 { margin: 0 0 10px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  .kpi .value { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .kpi .note { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .chart { position: relative; height: 260px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.num, th.num { text-align: right; }
+  .scroll { overflow-x: auto; }
+  .stores { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .store { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .store b { font-size: 15px; }
+  .store .row { display: flex; justify-content: space-between; color: var(--muted); margin-top: 4px; }
+  .store .row span:last-child { color: var(--text); font-variant-numeric: tabular-nums; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--amber); transition: width .4s; }
+  .flash { animation: flash 1.4s ease-out; }
+  @keyframes flash { 0% { background: rgba(79,157,255,.45); } 100% { background: transparent; } }
+  #error { display: none; background: #3a1d1d; border: 1px solid var(--red); color: #fecaca; border-radius: 8px; padding: 10px 14px; }
+  .empty { color: var(--muted); padding: 24px 0; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Streaming dashboard</h1>
+    <div class="sub">PostgreSQL → Debezium → Kafka → Flink → ClickHouse</div>
+  </div>
+  <div class="live"><span class="dot" id="dot"></span><span id="live-text">connecting…</span></div>
+</header>
+
+<main>
+  <div id="error"></div>
+
+  <section class="grid kpis">
+    <div class="card kpi"><h2>Total revenue</h2><div class="value" id="kpi-revenue">–</div><div class="note">all payments</div></div>
+    <div class="card kpi"><h2>Payments</h2><div class="value" id="kpi-payments">–</div><div class="note">counted by Flink</div></div>
+    <div class="card kpi"><h2>Avg per payment</h2><div class="value" id="kpi-avg">–</div><div class="note">revenue / payments</div></div>
+    <div class="card kpi"><h2>Updates, last 60 s</h2><div class="value" id="kpi-updates">–</div><div class="note">rows rewritten across datamarts</div></div>
+    <div class="card kpi"><h2>Latest update</h2><div class="value" id="kpi-fresh">–</div><div class="note">newest row in any datamart</div></div>
+  </section>
+
+  <section class="grid two">
+    <div class="card"><h2>Revenue per minute · latest 30 active minutes <small>(enriched_payments)</small></h2><div class="chart"><canvas id="chart-timeline"></canvas></div></div>
+    <div class="card"><h2>Revenue per month <small>(revenue_monthly)</small></h2><div class="chart"><canvas id="chart-monthly"></canvas></div></div>
+  </section>
+
+  <section class="grid two">
+    <div class="card"><h2>Revenue by category <small>(revenue_by_category)</small></h2><div class="chart" style="height:380px"><canvas id="chart-category"></canvas></div></div>
+    <div class="card"><h2>Top 20 customers <small>(top_customers)</small></h2>
+      <div class="scroll" style="max-height:380px;overflow-y:auto">
+        <table><thead><tr><th>#</th><th>Customer</th><th class="num">Payments</th><th class="num">Spent</th></tr></thead><tbody id="tbl-top"></tbody></table>
+      </div>
+    </div>
+  </section>
+
+  <section class="card"><h2>Rental stats per store <small>(store_rental_stats)</small></h2><div class="stores" id="stores"></div></section>
+
+  <section class="grid two">
+    <div class="card"><h2>Latest updates <small>(enriched_payments, newest first)</small></h2>
+      <div class="scroll"><table><thead><tr><th>Updated</th><th>Customer</th><th>Minute</th><th class="num">Payments</th><th class="num">Total</th></tr></thead><tbody id="tbl-feed"></tbody></table></div>
+    </div>
+    <div class="card"><h2>Pipeline activity per datamart</h2>
+      <div class="scroll"><table><thead><tr><th>Datamart</th><th class="num">Rows</th><th class="num">Updated, last 60 s</th><th class="num">Last update</th></tr></thead><tbody id="tbl-activity"></tbody></table></div>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+const REFRESH_MS = {{ refresh_ms }};
+const $ = id => document.getElementById(id);
+const money = n => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const int = n => Number(n).toLocaleString('en-US');
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const ago = s => s === null || s === undefined ? '–' : s < 60 ? s + ' s ago' : s < 3600 ? Math.floor(s / 60) + ' min ago' : s < 86400 ? Math.floor(s / 3600) + ' h ago' : Math.floor(s / 86400) + ' d ago';
+
+function flash(el) { el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+function setText(el, text) { if (el.textContent !== text) { el.textContent = text; flash(el); } }
+
+// Render rows and flash the ones that are new or whose content changed since the last poll.
+const previous = {};
+function renderRows(id, rows, keyOf, cellsOf) {
+  const old = previous[id] || {}, now = {};
+  $(id).innerHTML = rows.map(row => {
+    const key = keyOf(row), cells = cellsOf(row), sig = JSON.stringify(cells);
+    now[key] = sig;
+    const changed = Object.keys(old).length > 0 && old[key] !== sig;
+    return `<tr class="${changed ? 'flash' : ''}">${cells.map((c, i) => `<td class="${c.num ? 'num' : ''}">${esc(c.v)}</td>`).join('')}</tr>`;
+  }).join('') || '<tr><td class="empty" colspan="9">no data yet</td></tr>';
+  previous[id] = now;
+}
+
+Chart.defaults.color = '#8b98a9';
+Chart.defaults.borderColor = '#263040';
+Chart.defaults.animation.duration = 350;
+const moneyTick = { callback: v => '$' + Number(v).toLocaleString('en-US') };
+function chart(id, type, color, { horizontal = false, xTicks = {} } = {}) {
+  const valueAxis = horizontal ? 'x' : 'y', labelAxis = horizontal ? 'y' : 'x';
+  return new Chart($(id), {
+    type,
+    data: { labels: [], datasets: [{ data: [], backgroundColor: color, borderRadius: 3 }] },
+    options: {
+      indexAxis: horizontal ? 'y' : 'x',
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => money(c.parsed[valueAxis]) } },
+      },
+      scales: { [valueAxis]: { ticks: moneyTick }, [labelAxis]: { ticks: xTicks } },
+    },
+  });
+}
+const charts = {
+  timeline: chart('chart-timeline', 'bar', '#4f9dff', { xTicks: { autoSkip: false, maxRotation: 70, font: { size: 10 } } }),
+  monthly: chart('chart-monthly', 'bar', '#2dd4bf'),
+  category: chart('chart-category', 'bar', '#f5b041', { horizontal: true }),
+};
+function setChart(c, labels, values) {
+  c.data.labels = labels;
+  c.data.datasets[0].data = values;
+  c.update();
+}
+
+function render(d) {
+  const totals = d.totals[0] || { revenue: 0, payments: 0 };
+  const updates = d.activity.reduce((a, r) => a + r.updated_last_minute, 0);
+  const newest = d.activity.map(r => r.seconds_since_update).filter(s => s !== null);
+  setText($('kpi-revenue'), money(totals.revenue || 0));
+  setText($('kpi-payments'), int(totals.payments || 0));
+  setText($('kpi-avg'), totals.payments ? money(totals.revenue / totals.payments) : '–');
+  setText($('kpi-updates'), int(updates));
+  setText($('kpi-fresh'), newest.length ? ago(Math.min(...newest)) : '–');
+
+  setChart(charts.timeline, d.timeline.map(r => r.minute.slice(5)), d.timeline.map(r => r.revenue));
+  setChart(charts.monthly, d.monthly.map(r => r.revenue_month), d.monthly.map(r => r.revenue));
+  setChart(charts.category, d.categories.map(r => r.category), d.categories.map(r => r.revenue));
+
+  renderRows('tbl-top', d.top_customers, r => r.rn, r => [
+    { v: r.rn }, { v: r.customer_name }, { v: int(r.payment_count), num: 1 }, { v: money(r.total_spent), num: 1 }]);
+  renderRows('tbl-feed', d.feed, r => r.minute + r.customer_name, r => [
+    { v: r.updated }, { v: r.customer_name }, { v: r.minute }, { v: int(r.payment_count), num: 1 }, { v: money(r.total_amount), num: 1 }]);
+  renderRows('tbl-activity', d.activity, r => r.datamart, r => [
+    { v: r.datamart }, { v: int(r.rows), num: 1 }, { v: int(r.updated_last_minute), num: 1 }, { v: ago(r.seconds_since_update), num: 1 }]);
+
+  $('stores').innerHTML = d.stores.map(s => `
+    <div class="store"><b>Store ${esc(s.store_id)}</b>
+      <div class="row"><span>Rentals</span><span>${int(s.rentals)}</span></div>
+      <div class="row"><span>Returned</span><span>${int(s.returned)}</span></div>
+      <div class="row"><span>Avg rental days</span><span>${s.avg_rental_days}</span></div>
+      <div class="row"><span>Late returns</span><span>${int(s.late_count)} (${s.late_pct}%)</span></div>
+      <div class="bar"><i style="width:${Math.min(100, s.late_pct)}%"></i></div></div>`).join('')
+    || '<div class="empty">no data yet</div>';
+}
+
+function setLive(ok, text) {
+  $('dot').className = 'dot ' + (ok ? 'ok' : 'bad');
+  $('live-text').textContent = text;
+}
+
+async function tick() {
+  try {
+    const response = await fetch('/api/data', { cache: 'no-store' });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || response.status);
+    render(body);
+    $('error').style.display = 'none';
+    setLive(true, `live · refresh ${REFRESH_MS / 1000}s · ClickHouse time ${body.server_time}`);
+  } catch (error) {
+    $('error').style.display = 'block';
+    $('error').textContent = 'Waiting for ClickHouse data: ' + error.message;
+    setLive(false, 'disconnected');
+  } finally {
+    setTimeout(tick, REFRESH_MS);
+  }
+}
+tick();
+</script>
+</body>
+</html>

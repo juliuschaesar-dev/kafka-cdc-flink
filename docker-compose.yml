@@ -158,6 +158,20 @@ services:
     volumes:
       - ./scripts/generate-load.sh:/opt/generate.sh:ro
 
+  dashboard:
+    build: ./dashboard
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    environment:
+      CLICKHOUSE_HTTP_PORT: ${CLICKHOUSE_HTTP_PORT}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      DASHBOARD_PORT: ${DASHBOARD_PORT}
+    ports:
+      - "${DASHBOARD_PORT}:${DASHBOARD_PORT}"
+
   akhq:
     image: tchiotludo/akhq:0.28.0
     depends_on:
