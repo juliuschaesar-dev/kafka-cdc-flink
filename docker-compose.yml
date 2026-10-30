@@ -163,12 +163,7 @@ services:
     depends_on:
       init:
         condition: service_completed_successfully
-    environment:
-      CLICKHOUSE_HTTP_PORT: ${CLICKHOUSE_HTTP_PORT}
-      CLICKHOUSE_DB: ${CLICKHOUSE_DB}
-      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
-      DASHBOARD_PORT: ${DASHBOARD_PORT}
+    env_file: .env
     ports:
       - "${DASHBOARD_PORT}:${DASHBOARD_PORT}"
 

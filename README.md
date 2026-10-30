@@ -1,6 +1,6 @@
 # Kafka CDC Flink
 
-Streaming CDC pipeline: PostgreSQL (dvdrental) → Debezium → Kafka → Flink → ClickHouse.
+Streaming CDC pipeline: PostgreSQL (dvdrental) → Debezium → Kafka → Flink → ClickHouse, with a Flask dashboard on top that shows the results live.
 CDC topics use Avro (Confluent Schema Registry); result topics carry a Debezium-style JSON changelog.
 
 ## Architecture
@@ -104,14 +104,6 @@ set -a; source .env; set +a
 docker compose exec clickhouse clickhouse-client \
   --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" --database "$CLICKHOUSE_DB" \
   -q "SELECT * FROM enriched_payments ORDER BY window_start DESC LIMIT 10"
-```
-
-Or over HTTP:
-
-```bash
-curl -u "$CLICKHOUSE_USER:$CLICKHOUSE_PASSWORD" \
-  "http://localhost:${CLICKHOUSE_HTTP_PORT}/?database=${CLICKHOUSE_DB}" \
-  --data-binary "SELECT * FROM revenue_monthly ORDER BY revenue_month"
 ```
 
 With the generator running, repeating a query a few seconds apart shows the current month moving.

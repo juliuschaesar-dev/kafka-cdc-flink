@@ -4,20 +4,24 @@ SET 'pipeline.name' = 'cdc-analytics';
 -- --------------------------------------------------------- cdc sources ------
 -- Every table is read from its Debezium topic; Flink never queries Postgres.
 
+-- Options shared by every CDC source; each table below sets only its topic and group.
+CREATE TEMPORARY TABLE cdc_source WITH (
+  'connector' = 'kafka',
+  'properties.bootstrap.servers' = 'kafka:${KAFKA_PORT}',
+  'scan.startup.mode' = 'earliest-offset',
+  'format' = 'debezium-avro-confluent',
+  'debezium-avro-confluent.schema-registry.url' = 'http://schema-registry:${SCHEMA_REGISTRY_PORT}'
+);
+
 CREATE TABLE customer (
   customer_id INT,
   first_name  STRING,
   last_name   STRING,
   PRIMARY KEY (customer_id) NOT ENFORCED
 ) WITH (
-  'connector' = 'kafka',
   'topic' = '${POSTGRES_DB}.public.customer',
-  'properties.bootstrap.servers' = 'kafka:${KAFKA_PORT}',
-  'properties.group.id' = 'flink-cdc-customer',
-  'scan.startup.mode' = 'earliest-offset',
-  'format' = 'debezium-avro-confluent',
-  'debezium-avro-confluent.schema-registry.url' = 'http://schema-registry:${SCHEMA_REGISTRY_PORT}'
-);
+  'properties.group.id' = 'flink-cdc-customer'
+) LIKE cdc_source (INCLUDING OPTIONS);
 
 CREATE TABLE payment (
   customer_id  INT,
@@ -27,14 +31,9 @@ CREATE TABLE payment (
   -- Wide on purpose: a tight watermark drops rows from the out-of-order snapshot.
   WATERMARK FOR payment_date AS payment_date - INTERVAL '30' DAY
 ) WITH (
-  'connector' = 'kafka',
   'topic' = '${POSTGRES_DB}.public.payment',
-  'properties.bootstrap.servers' = 'kafka:${KAFKA_PORT}',
-  'properties.group.id' = 'flink-cdc-payment',
-  'scan.startup.mode' = 'earliest-offset',
-  'format' = 'debezium-avro-confluent',
-  'debezium-avro-confluent.schema-registry.url' = 'http://schema-registry:${SCHEMA_REGISTRY_PORT}'
-);
+  'properties.group.id' = 'flink-cdc-payment'
+) LIKE cdc_source (INCLUDING OPTIONS);
 
 CREATE TABLE rental (
   rental_id    INT,
@@ -43,14 +42,9 @@ CREATE TABLE rental (
   return_date  TIMESTAMP(3),
   PRIMARY KEY (rental_id) NOT ENFORCED
 ) WITH (
-  'connector' = 'kafka',
   'topic' = '${POSTGRES_DB}.public.rental',
-  'properties.bootstrap.servers' = 'kafka:${KAFKA_PORT}',
-  'properties.group.id' = 'flink-cdc-rental',
-  'scan.startup.mode' = 'earliest-offset',
-  'format' = 'debezium-avro-confluent',
-  'debezium-avro-confluent.schema-registry.url' = 'http://schema-registry:${SCHEMA_REGISTRY_PORT}'
-);
+  'properties.group.id' = 'flink-cdc-rental'
+) LIKE cdc_source (INCLUDING OPTIONS);
 
 CREATE TABLE inventory (
   inventory_id INT,
@@ -58,56 +52,36 @@ CREATE TABLE inventory (
   store_id     INT,
   PRIMARY KEY (inventory_id) NOT ENFORCED
 ) WITH (
-  'connector' = 'kafka',
   'topic' = '${POSTGRES_DB}.public.inventory',
-  'properties.bootstrap.servers' = 'kafka:${KAFKA_PORT}',
-  'properties.group.id' = 'flink-cdc-inventory',
-  'scan.startup.mode' = 'earliest-offset',
-  'format' = 'debezium-avro-confluent',
-  'debezium-avro-confluent.schema-registry.url' = 'http://schema-registry:${SCHEMA_REGISTRY_PORT}'
-);
+  'properties.group.id' = 'flink-cdc-inventory'
+) LIKE cdc_source (INCLUDING OPTIONS);
 
 CREATE TABLE film (
   film_id         INT,
   rental_duration INT,
   PRIMARY KEY (film_id) NOT ENFORCED
 ) WITH (
-  'connector' = 'kafka',
   'topic' = '${POSTGRES_DB}.public.film',
-  'properties.bootstrap.servers' = 'kafka:${KAFKA_PORT}',
-  'properties.group.id' = 'flink-cdc-film',
-  'scan.startup.mode' = 'earliest-offset',
-  'format' = 'debezium-avro-confluent',
-  'debezium-avro-confluent.schema-registry.url' = 'http://schema-registry:${SCHEMA_REGISTRY_PORT}'
-);
+  'properties.group.id' = 'flink-cdc-film'
+) LIKE cdc_source (INCLUDING OPTIONS);
 
 CREATE TABLE film_category (
   film_id     INT,
   category_id INT,
   PRIMARY KEY (film_id, category_id) NOT ENFORCED
 ) WITH (
-  'connector' = 'kafka',
   'topic' = '${POSTGRES_DB}.public.film_category',
-  'properties.bootstrap.servers' = 'kafka:${KAFKA_PORT}',
-  'properties.group.id' = 'flink-cdc-film-category',
-  'scan.startup.mode' = 'earliest-offset',
-  'format' = 'debezium-avro-confluent',
-  'debezium-avro-confluent.schema-registry.url' = 'http://schema-registry:${SCHEMA_REGISTRY_PORT}'
-);
+  'properties.group.id' = 'flink-cdc-film-category'
+) LIKE cdc_source (INCLUDING OPTIONS);
 
 CREATE TABLE category (
   category_id INT,
   name        STRING,
   PRIMARY KEY (category_id) NOT ENFORCED
 ) WITH (
-  'connector' = 'kafka',
   'topic' = '${POSTGRES_DB}.public.category',
-  'properties.bootstrap.servers' = 'kafka:${KAFKA_PORT}',
-  'properties.group.id' = 'flink-cdc-category',
-  'scan.startup.mode' = 'earliest-offset',
-  'format' = 'debezium-avro-confluent',
-  'debezium-avro-confluent.schema-registry.url' = 'http://schema-registry:${SCHEMA_REGISTRY_PORT}'
-);
+  'properties.group.id' = 'flink-cdc-category'
+) LIKE cdc_source (INCLUDING OPTIONS);
 
 -- ------------------------------------------------------------------ sinks ---
 -- Results are written as a Debezium-style changelog (debezium-json), not as
@@ -118,6 +92,14 @@ CREATE TABLE category (
 -- on one partition. updated_at is the version ClickHouse's ReplacingMergeTree
 -- keeps the newest row by.
 
+-- Options shared by every result topic; each table below sets its topic and row key.
+CREATE TEMPORARY TABLE changelog_sink WITH (
+  'connector' = 'kafka',
+  'properties.bootstrap.servers' = 'kafka:${KAFKA_PORT}',
+  'key.format' = 'json',
+  'value.format' = 'debezium-json'
+);
+
 CREATE TABLE enriched_payments (
   window_start   TIMESTAMP(3),
   window_end     TIMESTAMP(3),
@@ -127,13 +109,9 @@ CREATE TABLE enriched_payments (
   total_amount   DECIMAL(10, 2),
   updated_at     TIMESTAMP(3)
 ) WITH (
-  'connector' = 'kafka',
   'topic' = 'enriched-payments',
-  'properties.bootstrap.servers' = 'kafka:${KAFKA_PORT}',
-  'key.format' = 'json',
-  'key.fields' = 'window_start;window_end;customer_id',
-  'value.format' = 'debezium-json'
-);
+  'key.fields' = 'window_start;window_end;customer_id'
+) LIKE changelog_sink (INCLUDING OPTIONS);
 
 CREATE TABLE revenue_monthly (
   revenue_month  STRING,
@@ -141,13 +119,9 @@ CREATE TABLE revenue_monthly (
   revenue        DECIMAL(12, 2),
   updated_at     TIMESTAMP(3)
 ) WITH (
-  'connector' = 'kafka',
   'topic' = 'revenue-monthly',
-  'properties.bootstrap.servers' = 'kafka:${KAFKA_PORT}',
-  'key.format' = 'json',
-  'key.fields' = 'revenue_month',
-  'value.format' = 'debezium-json'
-);
+  'key.fields' = 'revenue_month'
+) LIKE changelog_sink (INCLUDING OPTIONS);
 
 CREATE TABLE revenue_by_category (
   category_id    INT,
@@ -156,13 +130,9 @@ CREATE TABLE revenue_by_category (
   revenue        DECIMAL(12, 2),
   updated_at     TIMESTAMP(3)
 ) WITH (
-  'connector' = 'kafka',
   'topic' = 'revenue-by-category',
-  'properties.bootstrap.servers' = 'kafka:${KAFKA_PORT}',
-  'key.format' = 'json',
-  'key.fields' = 'category_id',
-  'value.format' = 'debezium-json'
-);
+  'key.fields' = 'category_id'
+) LIKE changelog_sink (INCLUDING OPTIONS);
 
 CREATE TABLE top_customers (
   rn             BIGINT,
@@ -172,13 +142,9 @@ CREATE TABLE top_customers (
   total_spent    DECIMAL(12, 2),
   updated_at     TIMESTAMP(3)
 ) WITH (
-  'connector' = 'kafka',
   'topic' = 'top-customers',
-  'properties.bootstrap.servers' = 'kafka:${KAFKA_PORT}',
-  'key.format' = 'json',
-  'key.fields' = 'rn',
-  'value.format' = 'debezium-json'
-);
+  'key.fields' = 'rn'
+) LIKE changelog_sink (INCLUDING OPTIONS);
 
 CREATE TABLE store_rental_stats (
   store_id       INT,
@@ -189,13 +155,9 @@ CREATE TABLE store_rental_stats (
   late_ratio     DOUBLE,
   updated_at     TIMESTAMP(3)
 ) WITH (
-  'connector' = 'kafka',
   'topic' = 'store-rental-stats',
-  'properties.bootstrap.servers' = 'kafka:${KAFKA_PORT}',
-  'key.format' = 'json',
-  'key.fields' = 'store_id',
-  'value.format' = 'debezium-json'
-);
+  'key.fields' = 'store_id'
+) LIKE changelog_sink (INCLUDING OPTIONS);
 
 -- ------------------------------------------------------------------ views ---
 

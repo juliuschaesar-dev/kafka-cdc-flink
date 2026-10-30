@@ -23,15 +23,14 @@ app = Flask(__name__)
 def query(sql):
     """Run one statement and return its rows as dicts.
 
-    final=1 is sent explicitly so the result is the latest version per key no
-    matter which ClickHouse user or profile the dashboard connects as.
+    The server's default final = 1 (docker-compose.yml) makes every result the
+    latest version per key.
     """
     response = requests.post(
         CLICKHOUSE_URL,
         params={
             "database": DATABASE,
             "default_format": "JSON",
-            "final": 1,
             "output_format_json_quote_64bit_integers": 0,
         },
         data=sql.encode(),
@@ -89,8 +88,3 @@ def data():
     except Exception as error:  # ClickHouse down or tables not created yet
         return jsonify(error=str(error)), 503
     return jsonify(payload)
-
-
-@app.get("/healthz")
-def healthz():
-    return "ok"

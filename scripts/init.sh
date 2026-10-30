@@ -44,13 +44,20 @@ echo "connect: ${POSTGRES_DB}-connector registered"
 # --- Flink job ----------------------------------------------------------------
 wait_for flink-jobmanager "${FLINK}/overview"
 
-if curl -sf "${FLINK}/jobs/overview" | tr '{' '\n' | grep cdc-analytics | grep -q RUNNING; then
+job_running() {
+  curl -sf "${FLINK}/jobs/overview" | tr '{' '\n' | grep cdc-analytics | grep -q RUNNING
+}
+
+if job_running; then
   echo "flink: job already running, nothing to submit"
 else
   envsubst < /opt/init/pipeline.sql > /tmp/pipeline.sql
+  # sql-client exits 0 even when a statement fails, so check that the job is running.
   "${FLINK_HOME}/bin/sql-client.sh" \
     -Drest.address=flink-jobmanager -Drest.port="${FLINK_UI_PORT}" \
     -f /tmp/pipeline.sql
+  for _ in $(seq 30); do job_running && break; sleep 2; done
+  job_running || { echo "flink: cdc-analytics is not running, see the output above" >&2; exit 1; }
 fi
 
 echo "pipeline ready."
