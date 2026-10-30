@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 950" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 790" font-family="Segoe UI, Helvetica, Arial, sans-serif">
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
       <path d="M0,0 L10,5 L0,10 z" fill="#2b2b2b"/>
@@ -71,7 +71,7 @@
     </symbol>
   </defs>
 
-  <rect width="1600" height="950" fill="#fbfbfc"/>
+  <rect width="1600" height="790" fill="#fbfbfc"/>
 
   <text x="800" y="36" font-size="26" font-weight="700" fill="#1a1a2e" text-anchor="middle">PostgreSQL &#8594; Kafka CDC &#8594; Flink &#8594; ClickHouse Pipeline</text>
   <text x="800" y="58" font-size="14" fill="#666" text-anchor="middle">docker-compose services and data flow &#8212; kafka-cdc-flink</text>
@@ -200,7 +200,7 @@
 
   <!-- dashboard -->
   <rect x="1380" y="560" width="180" height="110" rx="14" fill="#ffffff" stroke="#2dd4bf" stroke-width="2"/>
-  <use href="#i-gear" x="1394" y="574" width="34" height="34"/>
+  <image href="data:image/png;base64,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" x="1394" y="574" width="34" height="34"/>
   <text x="1438" y="596" font-size="15" font-weight="700" fill="#1a1a2e">Dashboard</text>
   <text font-size="11" fill="#555">
     <tspan x="1394" y="622">Flask + Chart.js</tspan>
@@ -212,30 +212,30 @@
   <text x="1520" y="480" font-size="11" fill="#333" text-anchor="end">SQL / HTTP</text>
 
   <!-- ============ init (one-shot setup) ============ -->
-  <rect x="520" y="750" width="260" height="90" rx="14" fill="#ffffff" stroke="#43A047" stroke-width="2"/>
-  <use href="#i-check" x="534" y="758" width="30" height="30"/>
-  <text x="574" y="775" font-size="15" font-weight="700" fill="#1a1a2e">init</text>
+  <rect x="520" y="560" width="260" height="110" rx="14" fill="#ffffff" stroke="#43A047" stroke-width="2"/>
+  <use href="#i-check" x="534" y="574" width="34" height="34"/>
+  <text x="578" y="596" font-size="15" font-weight="700" fill="#1a1a2e">init</text>
   <text font-size="11" fill="#555">
-    <tspan x="534" y="795">one-shot: creates ClickHouse</tspan>
-    <tspan x="534" y="808">tables, registers connector,</tspan>
-    <tspan x="534" y="821">submits Flink job, then exits</tspan>
+    <tspan x="534" y="622">one-shot: creates ClickHouse</tspan>
+    <tspan x="534" y="635">tables, registers connector,</tspan>
+    <tspan x="534" y="648">submits Flink job, then exits</tspan>
   </text>
 
-  <path d="M650,750 L650,460" fill="none" stroke="#43A047" stroke-width="1.5" stroke-dasharray="5,4"/>
+  <path d="M650,560 L650,460" fill="none" stroke="#43A047" stroke-width="1.5" stroke-dasharray="5,4"/>
   <path d="M650,460 L415,460 L415,392" fill="none" stroke="#43A047" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-green)"/>
   <path d="M650,460 L900,460 L900,392" fill="none" stroke="#43A047" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-green)"/>
   <path d="M650,460 L1470,460 L1470,392" fill="none" stroke="#43A047" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-green)"/>
 
   <!-- ============ legend ============ -->
-  <line x1="60" y1="905" x2="100" y2="905" stroke="#2b2b2b" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="110" y="909" font-size="12" fill="#333">data flow (Avro / JSON over Kafka)</text>
+  <line x1="60" y1="745" x2="100" y2="745" stroke="#2b2b2b" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="110" y="749" font-size="12" fill="#333">data flow (Avro / JSON over Kafka)</text>
 
-  <line x1="440" y1="905" x2="480" y2="905" stroke="#9aa0a6" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-gray)"/>
-  <text x="490" y="909" font-size="12" fill="#333">schema / monitoring (cross-cutting)</text>
+  <line x1="440" y1="745" x2="480" y2="745" stroke="#9aa0a6" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-gray)"/>
+  <text x="490" y="749" font-size="12" fill="#333">schema / monitoring (cross-cutting)</text>
 
-  <line x1="900" y1="905" x2="940" y2="905" stroke="#43A047" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-green)"/>
-  <text x="950" y="909" font-size="12" fill="#333">one-shot setup action (init)</text>
+  <line x1="900" y1="745" x2="940" y2="745" stroke="#43A047" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-green)"/>
+  <text x="950" y="749" font-size="12" fill="#333">one-shot setup action (init)</text>
 
-  <rect x="1300" y="897" width="30" height="16" fill="none" stroke="#757575" stroke-width="2" stroke-dasharray="5,4"/>
-  <text x="1338" y="909" font-size="12" fill="#333">optional/manual service</text>
+  <rect x="1300" y="737" width="30" height="16" fill="none" stroke="#757575" stroke-width="2" stroke-dasharray="5,4"/>
+  <text x="1338" y="749" font-size="12" fill="#333">optional/manual service</text>
 </svg>
