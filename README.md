@@ -1,182 +1,100 @@
 # Kafka CDC Flink
 
 Streaming CDC pipeline: PostgreSQL (dvdrental) → Debezium → Kafka → Flink → ClickHouse.
-All Kafka topics use Avro, with schemas managed by Confluent Schema Registry.
+CDC topics use Avro (Confluent Schema Registry); result topics carry a Debezium-style JSON changelog.
 
 ## Architecture
 
 <img src="docs/pipeline-architecture.svg" width="100%" alt="Pipeline architecture: PostgreSQL, Debezium, Kafka, Flink, ClickHouse, Schema Registry, AKHQ">
 
-Debezium captures `customer`, `payment`, and `rental` — the tables that drive a
-result. Dimension tables (`inventory`, `film`, `film_category`, `category`) are
-read from Postgres via JDBC lookup joins instead, keeping them out of Flink
-state. One Flink job (`cdc-analytics`) turns it all into six result streams,
-written back to Kafka as Avro. ClickHouse consumes those topics directly via
-its native Kafka table engine.
+- **Debezium** snapshots then tails the WAL of seven tables: `customer`, `payment`, `rental`, `inventory`, `film`, `film_category`, `category`.
+- **Flink** (one job, `cdc-analytics`) reads only Kafka, joins the topics, and writes five result topics. It never queries Postgres, so a changed dimension row (say, a renamed category) flows through like a new payment.
+- **ClickHouse** reads the result topics itself through Kafka-engine tables.
+- **dashboard** (Flask) polls ClickHouse every 2 s and charts the five datamarts, so changes show up live.
+- **generator** (optional) keeps `payment` and `rental` changing since the dump is static: varied sales, returns, re-pricing, and refunds. It touches only rows it created and starts only on request (see [Run it](#run-it)).
 
-On first run Debezium snapshots the existing rows once, then tails the WAL for
-ongoing inserts/updates/deletes. Since the dvdrental dump is static, a
-`generator` service can keep writing to `payment` so there's always something
-to stream (insert every `GENERATOR_INTERVAL_SECONDS`, periodic update).
-It only touches rows it created. It's not started by `docker compose up` —
-start it manually (see [Run it](#run-it)) and stop it with
-`docker compose stop generator`.
+Notes:
 
-Captured tables use `REPLICA IDENTITY FULL` (see `postgres/init/`) — without
-it, updates/deletes carry no "before" value and Flink can't build the
-retraction its aggregates need.
+- Captured tables use `REPLICA IDENTITY FULL` (`postgres/init/`) so updates and deletes carry the old row, which Flink needs for retractions.
+- The publication and replica identity are created only when the Postgres volume is first initialised. To capture another table, add it to `table.include.list` in `debezium/postgres-connector.json` and to `postgres/init/`, then start clean (`docker compose --profile "*" down -v`).
+- The joins are regular streaming joins and keep both sides in Flink state. That is cheap for dvdrental; for large tables use `table.exec.state.ttl` or temporal joins.
 
 ## Analytics
 
-| ClickHouse table      | What it answers                          | How Flink computes it            |
-|------------------------|------------------------------------------|----------------------------------|
-| `enriched_payments`    | Revenue per customer, 1-minute windows   | Window TVF + changelog join      |
-| `revenue_monthly`      | Revenue per calendar month               | Regular aggregate                |
-| `revenue_by_category`  | Revenue per film category                | 4 chained lookup joins           |
-| `top_customers`        | Top 20 spenders, continuously re-ranked  | Lookup join + unbounded Top-N    |
-| `store_rental_stats`   | Avg rental length, late-return ratio per store | 2 lookup joins + aggregate |
-| `revenue_trend`        | Monthly revenue with a running total     | Daily windows + OVER             |
+| ClickHouse table      | What it answers                                | How Flink computes it            |
+|------------------------|------------------------------------------------|----------------------------------|
+| `enriched_payments`    | Revenue per customer, 1-minute windows         | Window TVF + changelog join      |
+| `revenue_monthly`      | Revenue per calendar month                     | Regular aggregate                |
+| `revenue_by_category`  | Revenue per film category                      | 4 chained changelog joins        |
+| `top_customers`        | Top 20 spenders, continuously re-ranked        | Changelog join + unbounded Top-N |
+| `store_rental_stats`   | Avg rental length, late-return ratio per store | 2 changelog joins + aggregate    |
 
-The Kafka-consuming plumbing (Kafka-engine tables + materialized views) lives
-in a separate `<db>_ingest` database, since a Kafka-engine table can only be
-read once — by its own view.
+All tables match Postgres exactly. (`payment` uses a 30-day watermark because the snapshot replays rows out of event-time order; a tighter one dropped ~19% of revenue.)
 
-All six tables are `ReplacingMergeTree(updated_at)`, so newest write wins
-deterministically. Since old versions linger until a background merge, the
-server sets `final = 1` by default so plain `SELECT`s already dedup:
+## Only the latest data
+
+The result tables keep the current state only, no history, and follow source inserts, updates, and deletes. Flink writes a changelog and ClickHouse's `ReplacingMergeTree(updated_at, is_deleted)` keeps the newest row per key (see the comments in `clickhouse/init.sql` and `flink/sql/pipeline.sql`).
+
+- The server sets `final = 1`, so plain `SELECT`s never see old versions or deleted rows and dashboards can query the tables directly. `SETTINGS final = 0` shows them. `is_deleted` is bookkeeping; ignore it.
+- Old versions are merged away on disk within about 30-60 s of a change.
 
 ```sql
 SELECT * FROM revenue_by_category ORDER BY revenue DESC;
 ```
-
-To see version history instead, add `SETTINGS final = 0`.
-
-All tables match Postgres exactly, except `revenue_trend`: it uses
-**event-time** windows with a 30-day watermark, so only its current month
-lags. Use `revenue_monthly` for numbers that are always complete right now.
-(The wide watermark exists because the Debezium snapshot replays payments out
-of event-time order — a tighter watermark silently dropped ~19% of revenue.)
 
 ## Prerequisites
 
 - Docker + Docker Compose (v2.23+, for the inline `configs:` block)
 - `data/dvdrental.tar` (already included)
 
-Everything runs through compose — no shell-specific requirements.
+## Services
 
-## Stack versions
+| Service         | Version                                   | URL                   | Purpose                                                |
+|-----------------|-------------------------------------------|-----------------------|--------------------------------------------------------|
+| Postgres        | 17                                        | localhost:5432        | Source database (dvdrental)                            |
+| Kafka (KRaft)   | 4.3.0 (Debezium image 3.6)                | localhost:9092        | Event backbone                                         |
+| Schema Registry | Confluent 8.3.0                           | http://localhost:8085 | Avro schemas for the CDC topics                        |
+| Kafka Connect   | Confluent 8.3.0, Debezium Postgres 3.7.0 | http://localhost:8083 | Debezium connector REST API                            |
+| Flink           | 2.2.1 (Scala 2.12, Java 17)               | http://localhost:8081 | Dashboard: job status, metrics                         |
+| ClickHouse      | 26.8                                      | http://localhost:8123 | SQL over HTTP (native `localhost:9000`)                |
+| AKHQ            | 0.28.0                                    | http://localhost:8080 | Kafka topics, consumer groups, schemas, Connect status |
+| Dashboard       | Flask 3.1, Chart.js 4.4 (CDN)             | http://localhost:5050 | Live view of the five datamarts                        |
 
-| Component         | Version                                   | Defined in                  |
-|-------------------|-------------------------------------------|-----------------------------|
-| PostgreSQL        | 17                                        | `docker-compose.yml`        |
-| Kafka (KRaft)     | Debezium image 3.6                        | `docker-compose.yml`        |
-| Schema Registry   | Confluent 8.3.0                           | `docker-compose.yml`        |
-| Flink             | 2.2.1 (Scala 2.12, Java 17)               | `flink/Dockerfile`          |
-| ClickHouse        | 26.8                                      | `docker-compose.yml`        |
-| AKHQ              | 0.28.0                                    | `docker-compose.yml`        |
+Versions are set in `docker-compose.yml`, `connect/Dockerfile`, and `flink/Dockerfile`. The Flink connector jars must match the Flink minor version (the `-2.2` suffix), so upgrade them together.
 
-Flink connectors are tied to the Flink minor version, so they move together
-with the image (all in `flink/Dockerfile`):
-
-| Jar                                  | Version     |
-|--------------------------------------|-------------|
-| `flink-sql-connector-kafka`          | 5.0.0-2.2   |
-| `flink-sql-avro-confluent-registry`  | 2.2.1       |
-| `flink-connector-jdbc-core`          | 4.1.0-2.2   |
-| `flink-connector-jdbc-postgres`      | 4.1.0-2.2   |
-| `postgresql` (JDBC driver)           | 42.7.13     |
-
-Upgrading Flink means picking a version for which both the Kafka and JDBC
-connectors have a matching `-<flink minor>` release (the suffix). Flink 2.x
-splits the JDBC connector into a core jar plus one jar per database dialect, so
-both `flink-connector-jdbc-core` and `flink-connector-jdbc-postgres` are
-needed, replacing the single `flink-connector-jdbc` jar used on Flink 1.x.
-Flink 2.3 exists, but at the time of writing the connectors only publish
-builds up to `-2.2`, so the stack stays on 2.2.x.
-
-Upgrading an existing stack: rebuild and recreate the Flink services, then
-re-run `init` to submit the job. The job restarts from the earliest Kafka
-offsets, and ClickHouse's `ReplacingMergeTree` collapses the replayed rows.
-
-```bash
-docker compose build flink-jobmanager
-docker compose up -d --force-recreate flink-jobmanager flink-taskmanager
-docker compose run --rm init
-```
+Ports are the `.env.example` defaults. `init` and `generator` have none. The dashboard loads Chart.js from a CDN, so the browser needs internet access.
 
 ## Configuration
 
-All credentials, names, and ports live in `.env` (gitignored):
+Credentials, names, and ports live in `.env` (gitignored): `cp .env.example .env`.
 
-```bash
-cp .env.example .env
-```
+- Compose interpolates most of it into `docker-compose.yml` and the inlined configs.
+- The `init` service `envsubst`s three files straight into their target, never writing them back to disk:
 
-- **Compose interpolates most of it** — `docker-compose.yml` and the small inlined configs (AKHQ, ClickHouse ports).
-- **The `init` service handles the rest** — three configs get `envsubst`'d straight into the target service, never written back to disk:
+| File                               | Applied to       |
+|------------------------------------|------------------|
+| `clickhouse/init.sql`              | ClickHouse HTTP  |
+| `debezium/postgres-connector.json` | Connect REST API |
+| `flink/sql/pipeline.sql`           | Flink SQL client |
 
-| File                               | Applied to        |
-|-------------------------------------|-------------------|
-| `clickhouse/init.sql`               | ClickHouse HTTP   |
-| `debezium/postgres-connector.json`  | Connect REST API  |
-| `flink/sql/pipeline.sql`            | Flink SQL client  |
-
-Editing `.env` takes effect on the next `docker compose up`.
-
-Each service's compose-network port and published port are the same value.
-Schema Registry runs on 8085 (not the usual 8081) since the Flink dashboard
-already uses 8081.
+Each service's compose-network and published ports are the same value. Schema Registry uses 8085 because the Flink dashboard uses 8081. Edits to `.env` apply on the next `docker compose up`.
 
 ## Run it
 
 ```bash
 cp .env.example .env      # first time only
 docker compose up -d --build
-```
-
-The `init` service creates ClickHouse tables, registers the Debezium
-connector, and submits the Flink job, then exits. ClickHouse then consumes the
-result topics on its own.
-
-Watch progress:
-
-```bash
 docker compose logs -f init
 ```
 
-To feed the pipeline with continuous inserts/updates/deletes, start the
-`generator` service manually — it's gated behind the `load` profile so it
-doesn't start with a plain `docker compose up`:
+`init` creates the ClickHouse tables, registers the Debezium connector, and submits the Flink job, then exits. ClickHouse then consumes the result topics on its own. Re-running `up -d` is safe: DDL is idempotent, the connector is re-registered, and the job is skipped if already running. To force resubmission, cancel it from the dashboard first.
+
+Open the dashboard at http://localhost:5050. To feed the pipeline with varied inserts, updates, and deletes and watch it move, start the generator (it sits behind the `load` profile). `GENERATOR_INTERVAL_SECONDS` sets the average pause between rounds; each round is one sale or a burst of several:
 
 ```bash
 docker compose --profile load up -d generator
-```
-
-Stop it with:
-
-```bash
 docker compose stop generator
 ```
-
-Re-running `docker compose up -d` is safe — DDL is idempotent, the connector
-is re-registered, and the Flink job is skipped if already running. To force
-resubmission, cancel the job from the dashboard first.
-
-## Services
-
-| Service            | URL                     | Purpose                          |
-|---------------------|-------------------------|-----------------------------------|
-| Postgres             | localhost:5432          | Source database (dvdrental)       |
-| Schema Registry      | http://localhost:8085   | Avro schemas for the CDC and enriched topics |
-| Kafka Connect        | http://localhost:8083   | Debezium connector REST API       |
-| Flink dashboard      | http://localhost:8081   | Job status, metrics               |
-| ClickHouse HTTP       | http://localhost:8123   | SQL over HTTP                     |
-| ClickHouse native     | localhost:9000          | `clickhouse-client` / drivers      |
-| AKHQ                  | http://localhost:8080   | Browse Kafka topics, consumer groups, schemas, and Connect status |
-
-Ports shown are `.env.example` defaults — actual ports follow your `.env`.
-
-`init` and `generator` have no ports of their own.
 
 ## Querying the results
 
@@ -196,8 +114,7 @@ curl -u "$CLICKHOUSE_USER:$CLICKHOUSE_PASSWORD" \
   --data-binary "SELECT * FROM revenue_monthly ORDER BY revenue_month"
 ```
 
-With the generator running, re-running these a few seconds apart shows the
-current month's numbers moving.
+With the generator running, repeating a query a few seconds apart shows the current month moving.
 
 ## Repository layout
 
@@ -208,13 +125,14 @@ current month's numbers moving.
 ├── postgres/init/                    # seed data, replica identity, publication, heartbeat
 ├── debezium/postgres-connector.json  # Debezium Postgres source connector config
 ├── connect/Dockerfile                # Kafka Connect image: Avro converter + Debezium plugin
-├── flink/                            # custom Flink image + SQL pipeline
-│   ├── Dockerfile                    # Flink 2.2.1 + Kafka, Avro/Schema-Registry, JDBC connectors + driver
-│   └── sql/pipeline.sql              # sources, lookups, sinks, views
+├── flink/
+│   ├── Dockerfile                    # Flink 2.2.1 + Kafka and Avro/Schema-Registry connectors
+│   └── sql/pipeline.sql              # CDC sources, sinks, views, jobs
 ├── clickhouse/init.sql               # result tables + Kafka consumers/views
+├── dashboard/                        # Flask app: live dashboard over the ClickHouse datamarts
 ├── scripts/
 │   ├── init.sh                       # table, connector, and pipeline setup
-│   └── generate-load.sh              # continuous insert/update/delete load
+│   └── generate-load.sh              # varied insert/update/delete load
 └── data/dvdrental.tar                # sample dvdrental dump
 ```
 
@@ -224,7 +142,4 @@ current month's numbers moving.
 docker compose --profile "*" down -v
 ```
 
-Drops all containers and volumes, including Postgres data, Kafka topics, and
-ClickHouse data. The `--profile "*"` flag matters if `generator` was ever
-started — plain `docker compose down` doesn't know about services in
-unactivated profiles and leaves their containers running.
+Drops all containers and volumes (Postgres, Kafka topics, ClickHouse). `--profile "*"` matters if `generator` was ever started: plain `down` ignores services in inactive profiles and leaves them running.

@@ -91,7 +91,7 @@
   <text x="394" y="115" font-size="15" font-weight="700" fill="#1a1a2e">Schema Registry</text>
   <text font-size="11" fill="#555">
     <tspan x="354" y="138">Confluent &#183; Avro schemas</tspan>
-    <tspan x="354" y="150">for all CDC &amp; result topics</tspan>
+    <tspan x="354" y="150">for the CDC topics</tspan>
   </text>
 
   <!-- AKHQ box -->
@@ -111,7 +111,7 @@
   <text x="98" y="296" font-size="15" font-weight="700" fill="#1a1a2e">PostgreSQL</text>
   <text font-size="11" fill="#555">
     <tspan x="54" y="322">source: dvdrental</tspan>
-    <tspan x="54" y="335">customer &#183; payment &#183; rental</tspan>
+    <tspan x="54" y="335">7 tables captured</tspan>
     <tspan x="54" y="348">REPLICA IDENTITY FULL</tspan>
     <tspan x="54" y="361">(WAL carries before/after)</tspan>
   </text>
@@ -132,8 +132,8 @@
   <text x="648" y="296" font-size="15" font-weight="700" fill="#1a1a2e">Kafka</text>
   <text font-size="11" fill="#555">
     <tspan x="604" y="322">CDC topics (Avro):</tspan>
-    <tspan x="604" y="335">customer, payment,</tspan>
-    <tspan x="604" y="348">rental</tspan>
+    <tspan x="604" y="335">customer, payment, rental,</tspan>
+    <tspan x="604" y="348">inventory, film, ...</tspan>
   </text>
 
   <!-- D: Flink -->
@@ -142,9 +142,9 @@
   <text x="898" y="296" font-size="15" font-weight="700" fill="#1a1a2e">Flink</text>
   <text font-size="11" fill="#555">
     <tspan x="854" y="322">job: cdc-analytics</tspan>
-    <tspan x="854" y="335">6 result streams (SQL)</tspan>
-    <tspan x="854" y="348">+ JDBC lookup joins for</tspan>
-    <tspan x="854" y="361">dimension tables</tspan>
+    <tspan x="854" y="335">5 result streams (SQL)</tspan>
+    <tspan x="854" y="348">joins across CDC topics</tspan>
+    <tspan x="854" y="361">(Kafka only, no DB access)</tspan>
   </text>
 
   <!-- E: Kafka result topics -->
@@ -152,7 +152,7 @@
   <use href="#i-kafka" x="1144" y="274" width="34" height="34"/>
   <text x="1188" y="296" font-size="15" font-weight="700" fill="#1a1a2e">Kafka</text>
   <text font-size="11" fill="#555">
-    <tspan x="1144" y="322">6 result topics (Avro):</tspan>
+    <tspan x="1144" y="322">5 result topics (JSON changelog):</tspan>
     <tspan x="1144" y="335">enriched_payments,</tspan>
     <tspan x="1144" y="348">revenue_monthly, ...</tspan>
   </text>
@@ -165,7 +165,7 @@
     <tspan x="1394" y="322">native Kafka table</tspan>
     <tspan x="1394" y="335">engine consumers</tspan>
     <tspan x="1394" y="348">ReplacingMergeTree</tspan>
-    <tspan x="1394" y="361">(updated_at), final=1</tspan>
+    <tspan x="1394" y="361">(updated_at, is_deleted)</tspan>
   </text>
 
   <!-- main flow arrows -->
@@ -179,26 +179,10 @@
   <text x="809" y="315" font-size="10" fill="#333" text-anchor="middle">Avro</text>
 
   <line x1="1070" y1="325" x2="1128" y2="325" stroke="#2b2b2b" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="1099" y="315" font-size="10" fill="#333" text-anchor="middle">Avro</text>
+  <text x="1099" y="315" font-size="10" fill="#333" text-anchor="middle">changelog</text>
 
   <line x1="1320" y1="325" x2="1378" y2="325" stroke="#2b2b2b" stroke-width="2" marker-end="url(#arrow)"/>
   <text x="1349" y="315" font-size="10" fill="#333" text-anchor="middle">Kafka engine</text>
-
-  <!-- ============ dimensions row ============ -->
-
-  <!-- G: Postgres dimensions -->
-  <rect x="840" y="560" width="230" height="130" rx="14" fill="#ffffff" stroke="#336791" stroke-width="2"/>
-  <use href="#i-db" x="854" y="574" width="34" height="34"/>
-  <text x="898" y="596" font-size="15" font-weight="700" fill="#1a1a2e">PostgreSQL</text>
-  <text font-size="11" fill="#555">
-    <tspan x="854" y="622">dimensions (JDBC lookup)</tspan>
-    <tspan x="854" y="635">inventory &#183; film &#183;</tspan>
-    <tspan x="854" y="648">film_category &#183; category</tspan>
-    <tspan x="854" y="661">not CDC'd &#8212; read by Flink</tspan>
-  </text>
-
-  <line x1="955" y1="558" x2="955" y2="392" stroke="#2b2b2b" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="970" y="480" font-size="11" fill="#333">JDBC lookup joins</text>
 
   <!-- generator -->
   <rect x="40" y="560" width="200" height="110" rx="14" fill="#f5f5f5" stroke="#757575" stroke-width="2" stroke-dasharray="7,5"/>
@@ -213,6 +197,19 @@
 
   <line x1="140" y1="558" x2="140" y2="392" stroke="#2b2b2b" stroke-width="2" marker-end="url(#arrow)"/>
   <text x="150" y="480" font-size="11" fill="#333">seed writes</text>
+
+  <!-- dashboard -->
+  <rect x="1380" y="560" width="180" height="110" rx="14" fill="#ffffff" stroke="#2dd4bf" stroke-width="2"/>
+  <use href="#i-gear" x="1394" y="574" width="34" height="34"/>
+  <text x="1438" y="596" font-size="15" font-weight="700" fill="#1a1a2e">Dashboard</text>
+  <text font-size="11" fill="#555">
+    <tspan x="1394" y="622">Flask + Chart.js</tspan>
+    <tspan x="1394" y="635">polls ClickHouse</tspan>
+    <tspan x="1394" y="648">every 2 s (live view)</tspan>
+  </text>
+
+  <line x1="1530" y1="558" x2="1530" y2="392" stroke="#2b2b2b" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="1520" y="480" font-size="11" fill="#333" text-anchor="end">SQL / HTTP</text>
 
   <!-- ============ init (one-shot setup) ============ -->
   <rect x="520" y="750" width="260" height="90" rx="14" fill="#ffffff" stroke="#43A047" stroke-width="2"/>
@@ -231,7 +228,7 @@
 
   <!-- ============ legend ============ -->
   <line x1="60" y1="905" x2="100" y2="905" stroke="#2b2b2b" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="110" y="909" font-size="12" fill="#333">data flow (Avro over Kafka)</text>
+  <text x="110" y="909" font-size="12" fill="#333">data flow (Avro / JSON over Kafka)</text>
 
   <line x1="440" y1="905" x2="480" y2="905" stroke="#9aa0a6" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-gray)"/>
   <text x="490" y="909" font-size="12" fill="#333">schema / monitoring (cross-cutting)</text>
