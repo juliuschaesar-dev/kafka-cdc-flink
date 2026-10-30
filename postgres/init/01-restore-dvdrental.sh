@@ -31,11 +31,17 @@ psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 <<-SQL
   -- Published but not captured: its WAL records advance the slot without
   -- becoming CDC events.
   CREATE PUBLICATION dbz_publication FOR TABLE
-    public.customer, public.payment, public.rental, public.dbz_heartbeat;
+    public.customer, public.payment, public.rental,
+    public.inventory, public.film, public.film_category, public.category,
+    public.dbz_heartbeat;
 
   -- FULL logs the whole old row, not just its key -- required for Flink to
   -- build retractions on UPDATE/DELETE.
   ALTER TABLE public.customer REPLICA IDENTITY FULL;
   ALTER TABLE public.payment  REPLICA IDENTITY FULL;
   ALTER TABLE public.rental   REPLICA IDENTITY FULL;
+  ALTER TABLE public.inventory     REPLICA IDENTITY FULL;
+  ALTER TABLE public.film          REPLICA IDENTITY FULL;
+  ALTER TABLE public.film_category REPLICA IDENTITY FULL;
+  ALTER TABLE public.category      REPLICA IDENTITY FULL;
 SQL

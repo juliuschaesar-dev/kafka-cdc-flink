@@ -9,7 +9,7 @@
   "plugin.name": "pgoutput",
   "publication.name": "dbz_publication",
   "publication.autocreate.mode": "disabled",
-  "table.include.list": "public.customer,public.payment,public.rental",
+  "table.include.list": "public.customer,public.payment,public.rental,public.inventory,public.film,public.film_category,public.category",
   "heartbeat.interval.ms": "10000",
   "heartbeat.action.query": "UPDATE public.dbz_heartbeat SET ts = now() WHERE id = 1",
   "slot.name": "dbz_${POSTGRES_DB}_slot",
